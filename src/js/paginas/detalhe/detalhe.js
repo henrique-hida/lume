@@ -266,8 +266,13 @@ export function renderizarDetalhe(conteudo, contexto = {}) {
         typeof servicoCache.lerCacheBusca === 'function'
       ) {
         try {
-          const registroCache = await servicoCache.lerCacheBusca(chaveCache)
+          const [registroCache, favorito] = await Promise.all([
+            servicoCache.lerCacheBusca(chaveCache),
+            verificarFavorito(),
+          ])
+          if (!secao.isConnected || atual !== requisicao) return
           if (registroCache?.dados) {
+            estaNosFavoritos = favorito
             exibirLivro(
               registroCache.dados,
               registroCache.atualizadoEm || 'horário anterior',

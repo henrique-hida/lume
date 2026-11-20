@@ -319,7 +319,11 @@ export function renderizarResultados(conteudo, contexto = {}) {
         typeof servicoCache.lerCacheBusca === 'function'
       ) {
         try {
-          const registroCache = await servicoCache.lerCacheBusca(chaveCache)
+          const [registroCache] = await Promise.all([
+            servicoCache.lerCacheBusca(chaveCache),
+            carregarFavoritos(),
+          ])
+          if (!secao.isConnected || atual !== requisicao) return
           if (registroCache?.dados) {
             exibirLivros(
               registroCache.dados,
