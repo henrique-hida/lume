@@ -92,6 +92,47 @@ removerFavorito(id)                 // Promise<void>
 alternarFavorito(livroResumo)       // Promise<boolean> (retorna true se ficou salvo, false se removido)
 ```
 
+### 1.5. Integração das Telas `Resultados` e `Detalhe` com Rotas, Cache e Favoritos
+
+As telas `src/js/paginas/resultados/resultados.js` e `src/js/paginas/detalhe/detalhe.js` exportam o padrão esperado pela lista única de rotas (`export default { url, pagina }`) e funções auxiliares para injeção dos serviços de persistência do Enzo:
+
+```js
+// Em src/js/rotas/rotas.js (Henrique)
+import resultadosTela from '../paginas/resultados/resultados.js'
+import detalheTela from '../paginas/detalhe/detalhe.js'
+
+// Quando cache.js e favoritos.js do Enzo estiverem prontos:
+import { configurarPersistenciaResultados } from '../paginas/resultados/resultados.js'
+import { configurarPersistenciaDetalhe } from '../paginas/detalhe/detalhe.js'
+
+configurarPersistenciaResultados({ cache: servicoCache, favoritos: servicoFavoritos })
+configurarPersistenciaDetalhe({ cache: servicoCache, favoritos: servicoFavoritos })
+```
+
+### 1.6. Tokens CSS utilizados nas telas `Resultados` e `Detalhe` (alinhamento com Henrique para `src/css/tokens.css`)
+
+Como o requisito **P7** exige que cores existam **somente em `src/css/tokens.css`**, os arquivos `resultados.css` e `detalhe.css` utilizam exclusivamente as variáveis abaixo:
+
+```css
+:root {
+  --cor-fundo: #f7f7f5;
+  --cor-superficie: #ffffff;
+  --cor-texto: #1f1f1f;
+  --cor-texto-secundario: #575757;
+  --cor-primaria: #1d4ed8;
+  --cor-primaria-contraste: #ffffff;
+  --cor-borda: #d6d6d2;
+  --cor-aviso: #b45309;
+  --cor-aviso-fundo: #fef3c7;
+  --cor-erro: #b91c1c;
+  --cor-erro-fundo: #fee2e2;
+  --espaco-pequeno: 0.5rem;
+  --espaco-medio: 1rem;
+  --espaco-grande: 1.5rem;
+  --raio-borda: 0.5rem;
+}
+```
+
 ---
 
 ## 2. Conteúdo para a Seção 3 do Google Docs (Responsabilidade: Matheus)
