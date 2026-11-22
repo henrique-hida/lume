@@ -1,0 +1,8 @@
+.inicio { display: flex; flex-direction: column; align-items: flex-start; gap: var(--espaco-6); max-width: 43rem; padding: var(--espaco-8) 0; }
+.inicio__titulo { margin: 0; font-family: Georgia, serif; font-size: 2.6rem; font-weight: 500; line-height: 1.08; letter-spacing: -0.04em; }
+.inicio__descricao { max-width: 34rem; margin: 0; color: var(--cor-texto-secundario); font-size: 1.1rem; }
+.inicio__formulario { align-self: stretch; display: flex; flex-direction: column; gap: var(--espaco-2); margin-top: var(--espaco-4); }
+.inicio__rotulo { font-size: 0.9rem; font-weight: 700; }
+.inicio__campos { display: flex; flex-wrap: wrap; gap: var(--espaco-2); }
+.inicio__campo { flex: 1 1 14rem; min-width: 0; min-height: 3rem; padding: var(--espaco-3) var(--espaco-4); border: 1px solid var(--cor-borda); border-radius: var(--raio-medio); background: var(--cor-superficie); color: var(--cor-texto); }
+.inicio__ajuda { margin: 0; color: var(--cor-texto-secundario); font-size: 0.875rem; }

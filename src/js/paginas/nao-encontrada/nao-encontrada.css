@@ -1,0 +1,3 @@
+.mensagem-pagina { display: flex; flex-direction: column; align-items: flex-start; gap: var(--espaco-4); max-width: 38rem; padding: var(--espaco-8) 0; }
+.mensagem-pagina__titulo { margin: 0; font-family: Georgia, serif; font-size: 2rem; font-weight: 500; line-height: 1.15; }
+.mensagem-pagina__texto { margin: 0 0 var(--espaco-2); color: var(--cor-texto-secundario); }

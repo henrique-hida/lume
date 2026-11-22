@@ -1,0 +1,6 @@
+node_modules/
+dist/
+.DS_Store
+
+# Rascunho individual para o documento da disciplina
+/docs/rascunho-henrique.md
