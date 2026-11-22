@@ -1,0 +1,12 @@
+default_permissions = "lume-workspace"
+
+[mcp_servers.playwright]
+command = "npx"
+args = ["--yes", "@playwright/mcp@0.0.85", "--browser", "chrome", "--isolated", "--headless"]
+
+[permissions.lume-workspace]
+description = "Restrict access to the project root README"
+extends = ":workspace"
+
+[permissions.lume-workspace.filesystem.":workspace_roots"]
+"README.md" = "deny"
