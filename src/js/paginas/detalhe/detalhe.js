@@ -4,12 +4,13 @@ import {
   extrairIdObra,
   TIPOS_ERRO_API,
 } from '../../servicos/api.js'
+import {
+  limparEstado,
+  mostrarCarregamento,
+  mostrarErro,
+  criarCapa,
+} from '../../componentes/livros.js'
 
-let contadorRequisicaoDetalhe = 0
-
-/**
- * Pontos de integração opcionais para os serviços de Enzo (cache e favoritos).
- */
 let servicoCache = null
 let servicoFavoritos = null
 
@@ -18,58 +19,20 @@ export function configurarPersistenciaDetalhe({ cache, favoritos } = {}) {
   if (favoritos) servicoFavoritos = favoritos
 }
 
-/**
- * Escapa caracteres especiais para evitar injeção de HTML ao interpolar dados externos.
- */
-function escaparHtml(valor) {
-  return String(valor ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
-}
-
-/**
- * Extrai o identificador da obra a partir da rota atual (ex.: "#/detalhe/OL29226517W"),
- * funcionando inclusive após recarregar a página com F5.
- */
 export function extrairIdDoHash(hash = window.location.hash) {
   if (typeof hash !== 'string') return ''
-
-  const semHash = hash.replace(/^#\/?/, '')
-  const [caminho, queryString] = semHash.split('?')
-
-  const segmentos = caminho.split('/').filter(Boolean)
-  if (segmentos[0] === 'detalhe' && segmentos.length > 1) {
-    const bruto = segmentos.slice(1).join('/')
+  const [caminho = ''] = hash.replace(/^#\/?/, '').split('?')
+  const partes = caminho.split('/').filter(Boolean)
+  if (partes[0] === 'detalhe' && partes.length > 1) {
     try {
-      return extrairIdObra(decodeURIComponent(bruto))
+      return extrairIdObra(decodeURIComponent(partes.slice(1).join('/')))
     } catch {
-      return extrairIdObra(bruto)
+      return extrairIdObra(partes.slice(1).join('/'))
     }
   }
-
-  if (queryString) {
-    const params = new URLSearchParams(queryString)
-    return extrairIdObra(params.get('id') ?? '')
-  }
-
   return ''
 }
 
-/**
- * Confere se o usuário continua na rota de detalhe correspondente ao ID consultado.
- */
-function continuaNaMesmaRotaDetalhe(idEsperado) {
-  const hashAtual = window.location.hash || ''
-  if (!hashAtual.startsWith('#/detalhe')) return false
-  return extrairIdDoHash(hashAtual) === idEsperado
-}
-
-/**
- * Converte um `LivroDetalhe` para o resumo salvo nos favoritos do usuário.
- */
 function criarResumoParaFavorito(livro) {
   return {
     id: livro.id,
@@ -82,281 +45,36 @@ function criarResumoParaFavorito(livro) {
   }
 }
 
-/**
- * Função principal de renderização da tela de Detalhe.
- *
- * @param {HTMLElement} app Elemento raiz `#app`.
- * @param {{ id?: string }} [parametros] Parâmetros opcionais repassados pelo roteador.
- */
-export async function detalhe(app, parametros = {}) {
-  const idLivro = extrairIdObra(parametros?.id || extrairIdDoHash())
-  const idRequisicao = ++contadorRequisicaoDetalhe
+export function renderizarDetalhe(conteudo, contexto = {}) {
+  const caminho = contexto.caminho || ''
+  const idBruto = caminho.startsWith('/detalhe/')
+    ? caminho.slice('/detalhe/'.length)
+    : extrairIdDoHash()
 
-  let livroCarregado = null
-  let horarioCacheOffline = null
+  let idDecodificado = idBruto
+  try {
+    idDecodificado = decodeURIComponent(idBruto)
+  } catch {
+    idDecodificado = idBruto
+  }
+  const id = extrairIdObra(idDecodificado)
+
+  conteudo.innerHTML = `
+    <section class="livros">
+      <h1 class="livros__titulo">Detalhe</h1>
+      <div class="livros__estado"></div>
+      <a class="livros__voltar" href="#/inicio">Voltar ao início</a>
+    </section>
+  `
+
+  const secao = conteudo.querySelector('section')
+  const tituloPrincipal = secao.querySelector('h1')
+  const estado = secao.querySelector('.livros__estado')
+
+  let requisicao = 0
   let estaNosFavoritos = false
 
-  function renderizarBarraNavegacao() {
-    return `
-      <nav class="detalhe__navegacao" aria-label="Navegação secundária">
-        <button type="button" class="detalhe__botao detalhe__botao--secundario" id="btn-voltar-detalhe">
-          Voltar
-        </button>
-        <a class="detalhe__botao detalhe__botao--secundario" href="#/inicio">
-          Início
-        </a>
-      </nav>
-    `
-  }
-
-  function vincularBotaoVoltar() {
-    const btnVoltar = app.querySelector('#btn-voltar-detalhe')
-    if (!btnVoltar) return
-
-    btnVoltar.addEventListener('click', () => {
-      if (window.history.length > 1) {
-        window.history.back()
-      } else {
-        window.location.hash = '#/inicio'
-      }
-    })
-  }
-
-  function renderizarEstadoCarregando() {
-    app.innerHTML = `
-      <section class="tela detalhe" aria-busy="true">
-        ${renderizarBarraNavegacao()}
-        <div class="detalhe__estado" role="status" aria-live="polite">
-          <h1 class="detalhe__estado-titulo">Carregando detalhes do livro...</h1>
-          <p class="detalhe__estado-texto">
-            Consultando a obra "${escaparHtml(idLivro)}" na Open Library.
-          </p>
-        </div>
-      </section>
-    `
-    vincularBotaoVoltar()
-  }
-
-  function renderizarEstadoVazio(mensagemPersonalizada) {
-    app.innerHTML = `
-      <section class="tela detalhe">
-        ${renderizarBarraNavegacao()}
-        <div class="detalhe__estado" role="status">
-          <h1 class="detalhe__estado-titulo">Livro não encontrado</h1>
-          <p class="detalhe__estado-texto">
-            ${escaparHtml(
-              mensagemPersonalizada ||
-                `Não encontramos nenhuma obra com o identificador "${idLivro || 'vazio'}" na Open Library.`,
-            )}
-          </p>
-          <div class="detalhe__estado-acoes">
-            <a class="detalhe__botao" href="#/inicio">
-              Buscar outro assunto
-            </a>
-          </div>
-        </div>
-      </section>
-    `
-    vincularBotaoVoltar()
-  }
-
-  function renderizarEstadoErro(erro) {
-    const semInternet =
-      erro?.tipo === TIPOS_ERRO_API.SEM_INTERNET || Boolean(erro?.semInternet)
-
-    const tituloErro = semInternet
-      ? 'Você está sem conexão com a internet'
-      : 'Não foi possível carregar os detalhes deste livro'
-
-    const mensagemErro = semInternet
-      ? 'Verifique sua conexão ou o modo avião. Este livro ainda não possui dados guardados no aparelho.'
-      : (erro?.message ?? 'Ocorreu uma falha ao consultar a Open Library.')
-
-    app.innerHTML = `
-      <section class="tela detalhe">
-        ${renderizarBarraNavegacao()}
-        <div class="detalhe__estado detalhe__estado--erro" role="alert">
-          <h1 class="detalhe__estado-titulo">${escaparHtml(tituloErro)}</h1>
-          <p class="detalhe__estado-texto">${escaparHtml(mensagemErro)}</p>
-          <div class="detalhe__estado-acoes">
-            <button type="button" class="detalhe__botao" id="btn-tentar-novamente-detalhe">
-              Tentar de novo
-            </button>
-            <a class="detalhe__botao detalhe__botao--secundario" href="#/inicio">
-              Ir para o Início
-            </a>
-          </div>
-        </div>
-      </section>
-    `
-    vincularBotaoVoltar()
-    const btnTentar = app.querySelector('#btn-tentar-novamente-detalhe')
-    if (btnTentar) {
-      btnTentar.addEventListener('click', () => carregarDetalhe())
-    }
-  }
-
-  function renderizarLivroDetalhe() {
-    const livro = livroCarregado
-    const autoresTexto =
-      livro.autores.length > 0
-        ? livro.autores.join(', ')
-        : 'Autor não informado'
-
-    const capaHtml = livro.capaUrl
-      ? `<img class="detalhe__capa" src="${escaparHtml(livro.capaUrl)}" alt="Capa de ${escaparHtml(livro.titulo)}">`
-      : `<span class="detalhe__sem-capa">Sem imagem de capa disponível</span>`
-
-    const sinopseTexto =
-      livro.sinopse ||
-      'Sinopse não disponível no cadastro desta obra na Open Library.'
-
-    const tagsHtml =
-      livro.assuntos.length > 0
-        ? `
-          <section class="detalhe__secao" aria-labelledby="titulo-assuntos-detalhe">
-            <h2 id="titulo-assuntos-detalhe" class="detalhe__secao-titulo">
-              Assuntos relacionados (toque para buscar mais livros)
-            </h2>
-            <ul class="detalhe__tags">
-              ${livro.assuntos
-                .map(
-                  assuntoTag => `
-                    <li>
-                      <a class="detalhe__tag-link" href="#/resultados?assunto=${encodeURIComponent(assuntoTag)}">
-                        ${escaparHtml(assuntoTag)}
-                      </a>
-                    </li>
-                  `,
-                )
-                .join('')}
-            </ul>
-          </section>
-        `
-        : ''
-
-    const linksExternosHtml =
-      Array.isArray(livro.linksExternos) && livro.linksExternos.length > 0
-        ? `
-          <section class="detalhe__secao" aria-labelledby="titulo-links-detalhe">
-            <h2 id="titulo-links-detalhe" class="detalhe__secao-titulo">
-              Links complementares
-            </h2>
-            <ul class="detalhe__links-lista">
-              ${livro.linksExternos
-                .map(
-                  item => `
-                    <li>
-                      <a class="detalhe__link-externo" href="${escaparHtml(item.url)}" target="_blank" rel="noopener noreferrer">
-                        ${escaparHtml(item.titulo)}
-                      </a>
-                    </li>
-                  `,
-                )
-                .join('')}
-            </ul>
-          </section>
-        `
-        : ''
-
-    const botaoFavoritoHtml = servicoFavoritos
-      ? `
-        <button
-          type="button"
-          class="detalhe__botao"
-          id="btn-alternar-favorito-detalhe"
-          aria-pressed="${estaNosFavoritos ? 'true' : 'false'}"
-        >
-          ${estaNosFavoritos ? 'Remover dos favoritos' : 'Salvar nos favoritos'}
-        </button>
-      `
-      : ''
-
-    app.innerHTML = `
-      <section class="tela detalhe">
-        ${renderizarBarraNavegacao()}
-        ${
-          horarioCacheOffline
-            ? `<div class="detalhe__aviso-cache" role="status">
-                <span>Sem internet — exibindo dados de ${escaparHtml(horarioCacheOffline)}</span>
-                <button type="button" class="detalhe__botao detalhe__botao--secundario" id="btn-tentar-novamente-cache-detalhe">
-                  Tentar de novo
-                </button>
-              </div>`
-            : ''
-        }
-        <article class="detalhe__painel">
-          <div class="detalhe__topo">
-            <div class="detalhe__capa-wrapper">
-              ${capaHtml}
-            </div>
-            <div class="detalhe__resumo">
-              <h1 class="detalhe__titulo">${escaparHtml(livro.titulo)}</h1>
-              <p class="detalhe__autores">${escaparHtml(autoresTexto)}</p>
-              <ul class="detalhe__metadados">
-                <li class="detalhe__metadado-item">
-                  ID: ${escaparHtml(livro.id)}
-                </li>
-                ${
-                  livro.anoPublicacao
-                    ? `<li class="detalhe__metadado-item">1ª publicação: ${escaparHtml(livro.anoPublicacao)}</li>`
-                    : ''
-                }
-                ${
-                  livro.numeroEdicoes > 0
-                    ? `<li class="detalhe__metadado-item">${escaparHtml(livro.numeroEdicoes)} ${livro.numeroEdicoes === 1 ? 'edição' : 'edições'}</li>`
-                    : ''
-                }
-              </ul>
-              <div class="detalhe__acoes">
-                ${botaoFavoritoHtml}
-                <a
-                  class="detalhe__botao detalhe__botao--secundario"
-                  href="${escaparHtml(livro.urlOrigem)}"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  Ver na Open Library
-                </a>
-              </div>
-            </div>
-          </div>
-
-          <section class="detalhe__secao" aria-labelledby="titulo-sinopse-detalhe">
-            <h2 id="titulo-sinopse-detalhe" class="detalhe__secao-titulo">Sinopse</h2>
-            <p class="detalhe__sinopse">${escaparHtml(sinopseTexto)}</p>
-          </section>
-
-          ${tagsHtml}
-          ${linksExternosHtml}
-        </article>
-      </section>
-    `
-
-    vincularBotaoVoltar()
-
-    const btnCache = app.querySelector('#btn-tentar-novamente-cache-detalhe')
-    if (btnCache) {
-      btnCache.addEventListener('click', () => carregarDetalhe())
-    }
-
-    const btnFavorito = app.querySelector('#btn-alternar-favorito-detalhe')
-    if (btnFavorito && servicoFavoritos) {
-      btnFavorito.addEventListener('click', async () => {
-        try {
-          const resumo = criarResumoParaFavorito(livro)
-          if (typeof servicoFavoritos.alternarFavorito === 'function') {
-            estaNosFavoritos = await servicoFavoritos.alternarFavorito(resumo)
-            renderizarLivroDetalhe()
-          }
-        } catch {
-          // Mantém o estado visual atual se a operação nativa falhar
-        }
-      })
-    }
-  }
-
-  async function verificarStatusFavorito(id) {
+  async function verificarFavorito() {
     if (!servicoFavoritos) return false
     try {
       if (typeof servicoFavoritos.ehFavorito === 'function') {
@@ -364,7 +82,7 @@ export async function detalhe(app, parametros = {}) {
       }
       if (typeof servicoFavoritos.listarFavoritos === 'function') {
         const lista = await servicoFavoritos.listarFavoritos()
-        return Array.isArray(lista) && lista.some(item => item?.id === id)
+        return Array.isArray(lista) && lista.some((item) => item?.id === id)
       }
     } catch {
       return false
@@ -372,53 +90,170 @@ export async function detalhe(app, parametros = {}) {
     return false
   }
 
-  async function carregarDetalhe() {
-    if (!idLivro) {
-      renderizarEstadoVazio(
-        'Nenhum identificador de livro foi informado no endereço.',
-      )
+  function criarAvisoCache(horario) {
+    const aviso = document.createElement('div')
+    aviso.className = 'detalhe__aviso-cache'
+    aviso.setAttribute('role', 'status')
+
+    const texto = document.createElement('span')
+    texto.textContent = `Sem internet — exibindo dados de ${horario}`
+
+    const btn = document.createElement('button')
+    btn.type = 'button'
+    btn.className = 'detalhe__botao-secundario'
+    btn.textContent = 'Tentar de novo'
+    btn.addEventListener('click', carregar)
+
+    aviso.append(texto, btn)
+    return aviso
+  }
+
+  function exibirLivro(livro, horarioCache = null) {
+    limparEstado(estado)
+    tituloPrincipal.textContent = livro.titulo
+
+    if (horarioCache) {
+      estado.append(criarAvisoCache(horarioCache))
+    }
+
+    const bloco = document.createElement('div')
+    bloco.className = 'livro'
+
+    const dados = document.createElement('div')
+    dados.className = 'livro__informacoes'
+
+    const autor = document.createElement('p')
+    autor.className = 'livro__meta'
+    autor.textContent = livro.autores.length
+      ? livro.autores.join(', ')
+      : 'Autoria não informada'
+
+    const ano = document.createElement('p')
+    ano.className = 'livro__meta'
+    ano.textContent = livro.anoPublicacao
+      ? `Primeira publicação: ${livro.anoPublicacao}`
+      : 'Ano não informado'
+
+    dados.append(autor, ano)
+
+    if (livro.numeroEdicoes > 0) {
+      const edicoes = document.createElement('p')
+      edicoes.className = 'livro__meta'
+      edicoes.textContent = `${livro.numeroEdicoes} ${livro.numeroEdicoes === 1 ? 'edição' : 'edições'}`
+      dados.append(edicoes)
+    }
+
+    bloco.append(criarCapa(livro), dados)
+
+    const acoes = document.createElement('div')
+    acoes.className = 'detalhe__acoes'
+
+    if (servicoFavoritos && typeof servicoFavoritos.alternarFavorito === 'function') {
+      const btnFavorito = document.createElement('button')
+      btnFavorito.type = 'button'
+      btnFavorito.className = 'botao'
+      btnFavorito.setAttribute('aria-pressed', estaNosFavoritos ? 'true' : 'false')
+      btnFavorito.textContent = estaNosFavoritos
+        ? 'Remover dos favoritos'
+        : 'Salvar nos favoritos'
+      btnFavorito.addEventListener('click', async () => {
+        try {
+          estaNosFavoritos = await servicoFavoritos.alternarFavorito(
+            criarResumoParaFavorito(livro),
+          )
+          exibirLivro(livro, horarioCache)
+        } catch {
+          // Mantém estado visual atual se a gravação nativa falhar
+        }
+      })
+      acoes.append(btnFavorito)
+    }
+
+    if (livro.urlOrigem) {
+      const linkOrigem = document.createElement('a')
+      linkOrigem.className = 'detalhe__botao-secundario'
+      linkOrigem.href = livro.urlOrigem
+      linkOrigem.target = '_blank'
+      linkOrigem.rel = 'noopener noreferrer'
+      linkOrigem.textContent = 'Ver na Open Library'
+      acoes.append(linkOrigem)
+    }
+
+    const tituloSinopse = document.createElement('h2')
+    tituloSinopse.className = 'livros__secao'
+    tituloSinopse.textContent = 'Sobre o livro'
+
+    const sinopse = document.createElement('p')
+    sinopse.className = 'livros__sinopse'
+    sinopse.textContent = livro.sinopse || 'Sinopse não disponível.'
+
+    estado.append(bloco, acoes, tituloSinopse, sinopse)
+
+    if (Array.isArray(livro.assuntos) && livro.assuntos.length > 0) {
+      const tituloAssuntos = document.createElement('h2')
+      tituloAssuntos.className = 'livros__secao'
+      tituloAssuntos.textContent = 'Assuntos relacionados'
+
+      const listaTags = document.createElement('ul')
+      listaTags.className = 'detalhe__tags'
+
+      for (const assuntoTag of livro.assuntos.slice(0, 8)) {
+        const li = document.createElement('li')
+        const link = document.createElement('a')
+        link.className = 'detalhe__tag-link'
+        link.href = `#/resultados?assunto=${encodeURIComponent(assuntoTag)}`
+        link.textContent = assuntoTag
+        li.append(link)
+        listaTags.append(li)
+      }
+
+      estado.append(tituloAssuntos, listaTags)
+    }
+  }
+
+  async function carregar() {
+    if (!id) {
+      limparEstado(estado)
+      const mensagem = document.createElement('p')
+      mensagem.className = 'livros__mensagem'
+      mensagem.textContent = 'Identificador do livro não informado.'
+      estado.append(mensagem)
       return
     }
 
-    renderizarEstadoCarregando()
-    const chaveCache = `detalhe:${idLivro}`
+    const atual = ++requisicao
+    const chaveCache = `detalhe:${id}`
+    mostrarCarregamento(estado)
 
     try {
-      const [dadosLivro, favoritoAtual] = await Promise.all([
-        buscarLivroPorId(idLivro),
-        verificarStatusFavorito(idLivro),
+      const [livro, favorito] = await Promise.all([
+        buscarLivroPorId(id),
+        verificarFavorito(),
       ])
 
-      if (
-        idRequisicao !== contadorRequisicaoDetalhe ||
-        !continuaNaMesmaRotaDetalhe(idLivro)
-      ) {
-        return
-      }
+      if (!secao.isConnected || atual !== requisicao) return
 
-      livroCarregado = dadosLivro
-      estaNosFavoritos = favoritoAtual
-      horarioCacheOffline = null
+      estaNosFavoritos = favorito
 
       if (servicoCache && typeof servicoCache.salvarCacheBusca === 'function') {
         try {
-          await servicoCache.salvarCacheBusca(chaveCache, dadosLivro)
+          await servicoCache.salvarCacheBusca(chaveCache, livro)
         } catch {
-          // Ignora falha de gravação de cache
+          // Ignora falha ao gravar cache
         }
       }
 
-      renderizarLivroDetalhe()
+      exibirLivro(livro)
     } catch (erro) {
-      if (
-        idRequisicao !== contadorRequisicaoDetalhe ||
-        !continuaNaMesmaRotaDetalhe(idLivro)
-      ) {
-        return
-      }
+      if (!secao.isConnected || atual !== requisicao) return
 
       if (erro?.tipo === TIPOS_ERRO_API.NAO_ENCONTRADO || erro?.status === 404) {
-        renderizarEstadoVazio()
+        limparEstado(estado)
+        const mensagem = document.createElement('p')
+        mensagem.className = 'livros__mensagem'
+        mensagem.textContent =
+          'Livro não encontrado na Open Library. Verifique o endereço ou faça uma nova busca.'
+        estado.append(mensagem)
         return
       }
 
@@ -432,25 +267,27 @@ export async function detalhe(app, parametros = {}) {
       ) {
         try {
           const registroCache = await servicoCache.lerCacheBusca(chaveCache)
-          if (registroCache && registroCache.dados) {
-            livroCarregado = registroCache.dados
-            horarioCacheOffline = registroCache.atualizadoEm || 'horário anterior'
-            renderizarLivroDetalhe()
+          if (registroCache?.dados) {
+            exibirLivro(
+              registroCache.dados,
+              registroCache.atualizadoEm || 'horário anterior',
+            )
             return
           }
         } catch {
-          // Se não houver cache válido, cai para o estado de erro/sem internet
+          // Segue para erro padrão sem internet
         }
       }
 
-      renderizarEstadoErro(erro)
+      mostrarErro(estado, erro, carregar)
     }
   }
 
-  await carregarDetalhe()
+  carregar()
 }
 
 export default {
-  url: '#/detalhe',
-  pagina: detalhe,
+  caminho: '/detalhe/:id',
+  titulo: 'Detalhe',
+  renderizar: renderizarDetalhe,
 }

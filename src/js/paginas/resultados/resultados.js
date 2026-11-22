@@ -1,13 +1,13 @@
 import './resultados.css'
 import { buscarLivrosPorAssunto, TIPOS_ERRO_API } from '../../servicos/api.js'
+import {
+  limparEstado,
+  mostrarCarregamento,
+  mostrarErro,
+  criarCapa,
+  criarInformacoes,
+} from '../../componentes/livros.js'
 
-let contadorRequisicao = 0
-
-/**
- * Pontos de integração opcionais para os serviços de Enzo (cache e favoritos).
- * Permitem que a tela funcione isoladamente agora e se conecte aos serviços
- * de persistência assim que estiverem disponíveis.
- */
 let servicoCache = null
 let servicoFavoritos = null
 
@@ -16,560 +16,299 @@ export function configurarPersistenciaResultados({ cache, favoritos } = {}) {
   if (favoritos) servicoFavoritos = favoritos
 }
 
-/**
- * Escapa caracteres especiais para evitar injeção de HTML ao interpolar dados externos.
- */
-function escaparHtml(valor) {
-  return String(valor ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
-}
-
-/**
- * Extrai o assunto pesquisado a partir do hash atual (ex.: "#/resultados?assunto=fantasia").
- */
 export function extrairAssuntoDoHash(hash = window.location.hash) {
   if (typeof hash !== 'string') return ''
-  const indiceInterrogacao = hash.indexOf('?')
-  if (indiceInterrogacao !== -1) {
-    const parametros = new URLSearchParams(hash.slice(indiceInterrogacao + 1))
-    return (parametros.get('assunto') ?? parametros.get('q') ?? '').trim()
-  }
-
-  const partes = hash.replace(/^#\/?/, '').split('/')
-  if (partes[0] === 'resultados' && partes[1]) {
-    try {
-      return decodeURIComponent(partes.slice(1).join('/')).trim()
-    } catch {
-      return partes.slice(1).join('/').trim()
-    }
-  }
-  return ''
+  const indice = hash.indexOf('?')
+  if (indice === -1) return ''
+  const params = new URLSearchParams(hash.slice(indice + 1))
+  return (params.get('assunto') ?? params.get('q') ?? '').trim()
 }
 
-/**
- * Confere se o usuário continua na rota de resultados correspondente ao assunto consultado.
- */
-function continuaNaMesmaRotaResultados(assuntoEsperado) {
-  const hashAtual = window.location.hash || ''
-  if (!hashAtual.startsWith('#/resultados')) return false
-  return extrairAssuntoDoHash(hashAtual) === assuntoEsperado
-}
-
-/**
- * Normaliza a chave do assunto para uso consistente no cache de busca.
- */
 function normalizarChaveAssunto(assunto) {
   return String(assunto ?? '').trim().toLowerCase()
 }
 
-/**
- * Aplica filtro textual, filtro de capa e critério de ordenação no próprio aplicativo
- * (cumprindo o requisito da tela Resultados sem nova requisição à API).
- */
 export function filtrarEOrdenarLivros(
   livros,
   { termoFiltro = '', criterioOrdenacao = 'relevancia', somenteComCapa = false } = {},
 ) {
-  const termoNormalizado = termoFiltro.trim().toLowerCase()
+  const termo = termoFiltro.trim().toLowerCase()
 
-  const filtrados = livros.filter(livro => {
-    if (somenteComCapa && !livro.capaUrl) {
-      return false
-    }
-
-    if (!termoNormalizado) {
-      return true
-    }
-
-    const tituloMatch = livro.titulo.toLowerCase().includes(termoNormalizado)
-    const autorMatch = livro.autores.some(autor =>
-      autor.toLowerCase().includes(termoNormalizado),
+  const filtrados = livros.filter((livro) => {
+    if (somenteComCapa && !livro.capaUrl) return false
+    if (!termo) return true
+    const tituloMatch = livro.titulo.toLowerCase().includes(termo)
+    const autorMatch = livro.autores.some((autor) =>
+      autor.toLowerCase().includes(termo),
     )
     return tituloMatch || autorMatch
   })
 
-  const listaOrdenada = [...filtrados]
-
+  const lista = [...filtrados]
   if (criterioOrdenacao === 'titulo-az') {
-    listaOrdenada.sort((a, b) => a.titulo.localeCompare(b.titulo, 'pt-BR'))
+    lista.sort((a, b) => a.titulo.localeCompare(b.titulo, 'pt-BR'))
   } else if (criterioOrdenacao === 'ano-recente') {
-    listaOrdenada.sort(
+    lista.sort(
       (a, b) => (b.anoPublicacao ?? -Infinity) - (a.anoPublicacao ?? -Infinity),
     )
   } else if (criterioOrdenacao === 'ano-antigo') {
-    listaOrdenada.sort(
+    lista.sort(
       (a, b) => (a.anoPublicacao ?? Infinity) - (b.anoPublicacao ?? Infinity),
     )
   } else if (criterioOrdenacao === 'edicoes') {
-    listaOrdenada.sort(
-      (a, b) => (b.numeroEdicoes ?? 0) - (a.numeroEdicoes ?? 0),
-    )
+    lista.sort((a, b) => (b.numeroEdicoes ?? 0) - (a.numeroEdicoes ?? 0))
   }
 
-  return listaOrdenada
+  return lista
 }
 
-/**
- * Renderiza um card de livro individual na lista de resultados.
- */
-function criarHtmlCardLivro(livro, idsFavoritos = new Set()) {
-  const autoresTexto =
-    livro.autores.length > 0
-      ? livro.autores.join(', ')
-      : 'Autor não informado'
+export function renderizarResultados(conteudo, contexto = {}) {
+  const consulta = contexto.consulta
+  const assunto = (
+    (consulta && typeof consulta.get === 'function' ? consulta.get('assunto') : '') ||
+    extrairAssuntoDoHash()
+  ).trim()
 
-  const anoTexto = livro.anoPublicacao
-    ? `Publicado em ${livro.anoPublicacao}`
-    : 'Ano não informado'
-
-  const edicoesTexto =
-    livro.numeroEdicoes > 0
-      ? `${livro.numeroEdicoes} ${livro.numeroEdicoes === 1 ? 'edição' : 'edições'}`
-      : ''
-
-  const capaHtml = livro.capaUrl
-    ? `<img class="resultados__capa" src="${escaparHtml(livro.capaUrl)}" alt="Capa de ${escaparHtml(livro.titulo)}" loading="lazy">`
-    : `<span class="resultados__sem-capa">Sem capa</span>`
-
-  const tagsHtml = livro.assuntos
-    .slice(0, 3)
-    .map(tag => `<span class="resultados__tag">${escaparHtml(tag)}</span>`)
-    .join('')
-
-  const ehFavorito = idsFavoritos.has(livro.id)
-  const botaoFavoritoHtml = servicoFavoritos
-    ? `<button type="button" class="resultados__botao resultados__botao--secundario" data-acao="favoritar" data-id="${escaparHtml(livro.id)}" aria-pressed="${ehFavorito ? 'true' : 'false'}">
-        ${ehFavorito ? 'Remover favorito' : 'Salvar favorito'}
-      </button>`
-    : ''
-
-  return `
-    <li class="resultados__card">
-      <div class="resultados__capa-container">
-        ${capaHtml}
-      </div>
-      <div class="resultados__info">
-        <h2 class="resultados__livro-titulo">${escaparHtml(livro.titulo)}</h2>
-        <p class="resultados__livro-autor">${escaparHtml(autoresTexto)}</p>
-        <div class="resultados__meta">
-          <span>${escaparHtml(anoTexto)}</span>
-          ${edicoesTexto ? `<span>• ${escaparHtml(edicoesTexto)}</span>` : ''}
-        </div>
-        ${tagsHtml ? `<div class="resultados__assuntos">${tagsHtml}</div>` : ''}
-        <div class="resultados__acoes-card">
-          <a class="resultados__botao" href="#/detalhe/${encodeURIComponent(livro.id)}">
-            Ver detalhes
-          </a>
-          ${botaoFavoritoHtml}
-        </div>
-      </div>
-    </li>
+  conteudo.innerHTML = `
+    <section class="livros">
+      <h1 class="livros__titulo">Resultados</h1>
+      <p class="livros__subtitulo"></p>
+      <div class="livros__estado"></div>
+      <a class="livros__voltar" href="#/inicio">Nova busca</a>
+    </section>
   `
-}
 
-/**
- * Função principal de renderização da tela de Resultados.
- */
-export async function resultados(app) {
-  const assunto = extrairAssuntoDoHash()
-  const idRequisicao = ++contadorRequisicao
+  const secao = conteudo.querySelector('section')
+  const subtitulo = secao.querySelector('.livros__subtitulo')
+  const estado = secao.querySelector('.livros__estado')
 
-  const estadoControles = {
+  if (!assunto) {
+    subtitulo.textContent = 'Informe um assunto para buscar livros.'
+    return
+  }
+
+  subtitulo.textContent = `Busca por “${assunto}”`
+
+  let requisicao = 0
+  let idsFavoritos = new Set()
+  const filtros = {
     termoFiltro: '',
     criterioOrdenacao: 'relevancia',
     somenteComCapa: false,
   }
 
-  let livrosCarregados = []
-  let totalEncontradosApi = 0
-  let horarioCacheOffline = null
-  let idsFavoritos = new Set()
-
-  function renderizarCabecalhoBase() {
-    return `
-      <header class="resultados__cabecalho">
-        <h1 class="resultados__titulo">
-          ${assunto ? `Resultados para "${escaparHtml(assunto)}"` : 'Explorar livros por assunto'}
-        </h1>
-        <p class="resultados__subtitulo">
-          Que livros existem sobre o assunto que você quer ler agora?
-        </p>
-        <form class="resultados__busca-form" id="form-busca-resultados" role="search">
-          <input
-            id="campo-assunto-resultados"
-            class="resultados__busca-campo"
-            type="search"
-            name="assunto"
-            placeholder="Ex.: fantasia, história, programação..."
-            value="${escaparHtml(assunto)}"
-            aria-label="Assunto para buscar livros"
-            required
-          >
-          <button type="submit" class="resultados__botao">Buscar</button>
-        </form>
-      </header>
-    `
-  }
-
-  function vincularEventoBuscaAssunto() {
-    const formBusca = app.querySelector('#form-busca-resultados')
-    if (!formBusca) return
-
-    formBusca.addEventListener('submit', evento => {
-      evento.preventDefault()
-      const campo = app.querySelector('#campo-assunto-resultados')
-      const novoAssunto = campo ? campo.value.trim() : ''
-      if (!novoAssunto) return
-
-      const novoHash = `#/resultados?assunto=${encodeURIComponent(novoAssunto)}`
-      if (window.location.hash === novoHash) {
-        executarBusca()
-      } else {
-        window.location.hash = novoHash
-      }
-    })
-  }
-
-  function renderizarEstadoCarregando() {
-    app.innerHTML = `
-      <section class="tela resultados" aria-busy="true">
-        ${renderizarCabecalhoBase()}
-        <div class="resultados__estado" role="status" aria-live="polite">
-          <h2 class="resultados__estado-titulo">Carregando livros...</h2>
-          <p class="resultados__estado-texto">
-            Consultando a Open Library sobre "${escaparHtml(assunto)}".
-          </p>
-        </div>
-      </section>
-    `
-    vincularEventoBuscaAssunto()
-  }
-
-  function renderizarEstadoSemAssunto() {
-    app.innerHTML = `
-      <section class="tela resultados">
-        ${renderizarCabecalhoBase()}
-        <div class="resultados__estado" role="status">
-          <h2 class="resultados__estado-titulo">Informe um assunto para começar</h2>
-          <p class="resultados__estado-texto">
-            Digite um tema no campo acima ou volte para a tela inicial para descobrir livros.
-          </p>
-          <div class="resultados__estado-acoes">
-            <a class="resultados__botao resultados__botao--secundario" href="#/inicio">
-              Ir para o Início
-            </a>
-          </div>
-        </div>
-      </section>
-    `
-    vincularEventoBuscaAssunto()
-  }
-
-  function renderizarEstadoVazio() {
-    app.innerHTML = `
-      <section class="tela resultados">
-        ${renderizarCabecalhoBase()}
-        ${
-          horarioCacheOffline
-            ? `<div class="resultados__aviso-cache" role="status">
-                <span>Sem internet — dados de ${escaparHtml(horarioCacheOffline)}</span>
-                <button type="button" class="resultados__botao resultados__botao--secundario" id="btn-tentar-novamente-cache">
-                  Tentar de novo
-                </button>
-              </div>`
-            : ''
-        }
-        <div class="resultados__estado" role="status">
-          <h2 class="resultados__estado-titulo">Nenhum livro encontrado</h2>
-          <p class="resultados__estado-texto">
-            Não encontramos obras na Open Library para o assunto "${escaparHtml(assunto)}". Tente outro termo (em português ou inglês, como "fantasy" ou "history").
-          </p>
-          <div class="resultados__estado-acoes">
-            <a class="resultados__botao resultados__botao--secundario" href="#/inicio">
-              Nova busca no Início
-            </a>
-          </div>
-        </div>
-      </section>
-    `
-    vincularEventoBuscaAssunto()
-    const btnCache = app.querySelector('#btn-tentar-novamente-cache')
-    if (btnCache) {
-      btnCache.addEventListener('click', () => executarBusca())
-    }
-  }
-
-  function renderizarEstadoErro(erro) {
-    const semInternet =
-      erro?.tipo === TIPOS_ERRO_API.SEM_INTERNET || Boolean(erro?.semInternet)
-
-    const tituloErro = semInternet
-      ? 'Você está sem conexão com a internet'
-      : 'Não foi possível carregar os resultados'
-
-    const mensagemErro = semInternet
-      ? 'Verifique sua conexão ou o modo avião. Não há dados salvos no aparelho para este assunto.'
-      : (erro?.message ?? 'Ocorreu uma falha ao consultar a Open Library.')
-
-    app.innerHTML = `
-      <section class="tela resultados">
-        ${renderizarCabecalhoBase()}
-        <div class="resultados__estado resultados__estado--erro" role="alert">
-          <h2 class="resultados__estado-titulo">${escaparHtml(tituloErro)}</h2>
-          <p class="resultados__estado-texto">${escaparHtml(mensagemErro)}</p>
-          <div class="resultados__estado-acoes">
-            <button type="button" class="resultados__botao" id="btn-tentar-novamente">
-              Tentar de novo
-            </button>
-            <a class="resultados__botao resultados__botao--secundario" href="#/inicio">
-              Voltar ao Início
-            </a>
-          </div>
-        </div>
-      </section>
-    `
-    vincularEventoBuscaAssunto()
-    const btnTentar = app.querySelector('#btn-tentar-novamente')
-    if (btnTentar) {
-      btnTentar.addEventListener('click', () => executarBusca())
-    }
-  }
-
-  function atualizarListaFiltrada() {
-    const containerLista = app.querySelector('#resultados-lista-container')
-    const elementoContagem = app.querySelector('#resultados-contagem')
-    if (!containerLista || !elementoContagem) return
-
-    const livrosVisiveis = filtrarEOrdenarLivros(livrosCarregados, estadoControles)
-
-    elementoContagem.textContent = `Exibindo ${livrosVisiveis.length} de ${livrosCarregados.length} livros carregados (${totalEncontradosApi} encontrados na Open Library)`
-
-    if (livrosVisiveis.length === 0) {
-      containerLista.innerHTML = `
-        <div class="resultados__estado" role="status">
-          <h2 class="resultados__estado-titulo">Nenhum livro corresponde ao filtro atual</h2>
-          <p class="resultados__estado-texto">
-            Altere o texto do filtro ou desmarque a opção "Apenas livros com capa".
-          </p>
-          <div class="resultados__estado-acoes">
-            <button type="button" class="resultados__botao resultados__botao--secundario" id="btn-limpar-filtros">
-              Limpar filtro
-            </button>
-          </div>
-        </div>
-      `
-      const btnLimpar = containerLista.querySelector('#btn-limpar-filtros')
-      if (btnLimpar) {
-        btnLimpar.addEventListener('click', () => {
-          estadoControles.termoFiltro = ''
-          estadoControles.criterioOrdenacao = 'relevancia'
-          estadoControles.somenteComCapa = false
-
-          const inputFiltro = app.querySelector('#filtro-texto-resultados')
-          const selectOrdem = app.querySelector('#ordenacao-resultados')
-          const checkCapa = app.querySelector('#filtro-capa-resultados')
-
-          if (inputFiltro) inputFiltro.value = ''
-          if (selectOrdem) selectOrdem.value = 'relevancia'
-          if (checkCapa) checkCapa.checked = false
-
-          atualizarListaFiltrada()
-        })
-      }
-      return
-    }
-
-    containerLista.innerHTML = `
-      <ul class="resultados__lista">
-        ${livrosVisiveis.map(livro => criarHtmlCardLivro(livro, idsFavoritos)).join('')}
-      </ul>
-    `
-  }
-
-  function renderizarResultadosComControles() {
-    app.innerHTML = `
-      <section class="tela resultados">
-        ${renderizarCabecalhoBase()}
-        ${
-          horarioCacheOffline
-            ? `<div class="resultados__aviso-cache" role="status">
-                <span>Sem internet — exibindo dados de ${escaparHtml(horarioCacheOffline)}</span>
-                <button type="button" class="resultados__botao resultados__botao--secundario" id="btn-tentar-novamente-cache">
-                  Tentar de novo
-                </button>
-              </div>`
-            : ''
-        }
-        <div class="resultados__controles" aria-label="Opções de filtro e ordenação">
-          <div class="resultados__controle-grupo">
-            <label class="resultados__rotulo" for="ordenacao-resultados">
-              Ordenar por
-            </label>
-            <select id="ordenacao-resultados" class="resultados__select">
-              <option value="relevancia">Relevância (padrão da busca)</option>
-              <option value="titulo-az">Título (A–Z)</option>
-              <option value="ano-recente">Ano (mais recentes primeiro)</option>
-              <option value="ano-antigo">Ano (mais antigos primeiro)</option>
-              <option value="edicoes">Maior número de edições</option>
-            </select>
-          </div>
-
-          <div class="resultados__controle-grupo">
-            <label class="resultados__rotulo" for="filtro-texto-resultados">
-              Filtrar por título ou autor nos resultados
-            </label>
-            <input
-              id="filtro-texto-resultados"
-              class="resultados__input"
-              type="search"
-              placeholder="Digite parte do título ou autor..."
-              value="${escaparHtml(estadoControles.termoFiltro)}"
-            >
-          </div>
-
-          <label class="resultados__checkbox-linha" for="filtro-capa-resultados">
-            <input
-              id="filtro-capa-resultados"
-              type="checkbox"
-              ${estadoControles.somenteComCapa ? 'checked' : ''}
-            >
-            <span>Apenas livros com capa disponível</span>
-          </label>
-
-          <p id="resultados-contagem" class="resultados__contagem" aria-live="polite"></p>
-        </div>
-
-        <div id="resultados-lista-container"></div>
-      </section>
-    `
-
-    vincularEventoBuscaAssunto()
-
-    const selectOrdem = app.querySelector('#ordenacao-resultados')
-    const inputFiltro = app.querySelector('#filtro-texto-resultados')
-    const checkCapa = app.querySelector('#filtro-capa-resultados')
-    const btnCache = app.querySelector('#btn-tentar-novamente-cache')
-    const containerLista = app.querySelector('#resultados-lista-container')
-
-    if (selectOrdem) {
-      selectOrdem.value = estadoControles.criterioOrdenacao
-      selectOrdem.addEventListener('change', evento => {
-        estadoControles.criterioOrdenacao = evento.target.value
-        atualizarListaFiltrada()
-      })
-    }
-
-    if (inputFiltro) {
-      inputFiltro.addEventListener('input', evento => {
-        estadoControles.termoFiltro = evento.target.value
-        atualizarListaFiltrada()
-      })
-    }
-
-    if (checkCapa) {
-      checkCapa.addEventListener('change', evento => {
-        estadoControles.somenteComCapa = evento.target.checked
-        atualizarListaFiltrada()
-      })
-    }
-
-    if (btnCache) {
-      btnCache.addEventListener('click', () => executarBusca())
-    }
-
-    if (containerLista && servicoFavoritos) {
-      containerLista.addEventListener('click', async evento => {
-        const botaoFavoritar = evento.target.closest('[data-acao="favoritar"]')
-        if (!botaoFavoritar) return
-
-        const idLivro = botaoFavoritar.getAttribute('data-id')
-        const livroAlvo = livrosCarregados.find(item => item.id === idLivro)
-        if (!livroAlvo) return
-
-        try {
-          if (typeof servicoFavoritos.alternarFavorito === 'function') {
-            const ficouFavorito = await servicoFavoritos.alternarFavorito(livroAlvo)
-            if (ficouFavorito) {
-              idsFavoritos.add(idLivro)
-            } else {
-              idsFavoritos.delete(idLivro)
-            }
-            atualizarListaFiltrada()
-          }
-        } catch {
-          // Mantém o estado visual atual caso a gravação nativa falhe
-        }
-      })
-    }
-
-    atualizarListaFiltrada()
-  }
-
-  async function carregarIdsFavoritos() {
+  async function carregarFavoritos() {
     if (!servicoFavoritos || typeof servicoFavoritos.listarFavoritos !== 'function') {
       return
     }
     try {
       const lista = await servicoFavoritos.listarFavoritos()
       if (Array.isArray(lista)) {
-        idsFavoritos = new Set(lista.map(item => item?.id).filter(Boolean))
+        idsFavoritos = new Set(lista.map((item) => item?.id).filter(Boolean))
       }
     } catch {
       idsFavoritos = new Set()
     }
   }
 
-  async function executarBusca() {
-    if (!assunto) {
-      renderizarEstadoSemAssunto()
+  function criarAvisoCache(horario) {
+    const aviso = document.createElement('div')
+    aviso.className = 'resultados__aviso-cache'
+    aviso.setAttribute('role', 'status')
+
+    const texto = document.createElement('span')
+    texto.textContent = `Sem internet — exibindo dados de ${horario}`
+
+    const btn = document.createElement('button')
+    btn.type = 'button'
+    btn.className = 'resultados__botao-secundario'
+    btn.textContent = 'Tentar de novo'
+    btn.addEventListener('click', carregar)
+
+    aviso.append(texto, btn)
+    return aviso
+  }
+
+  function exibirLivros(resultado, horarioCache = null) {
+    limparEstado(estado)
+
+    if (horarioCache) {
+      estado.append(criarAvisoCache(horarioCache))
+    }
+
+    if (!resultado.livros.length) {
+      const mensagem = document.createElement('p')
+      mensagem.className = 'livros__mensagem'
+      mensagem.textContent =
+        'Nenhum livro encontrado para este assunto. Tente outra busca.'
+      estado.append(mensagem)
       return
     }
 
-    renderizarEstadoCarregando()
-    const chaveCache = normalizarChaveAssunto(assunto)
+    const controles = document.createElement('div')
+    controles.className = 'resultados__controles'
 
-    try {
-      const [resposta] = await Promise.all([
-        buscarLivrosPorAssunto(assunto, { limite: 20 }),
-        carregarIdsFavoritos(),
-      ])
+    const grupoOrdem = document.createElement('div')
+    grupoOrdem.className = 'resultados__grupo'
+    const rotuloOrdem = document.createElement('label')
+    rotuloOrdem.className = 'resultados__rotulo'
+    rotuloOrdem.setAttribute('for', 'ordenacao-resultados')
+    rotuloOrdem.textContent = 'Ordenar por'
+    const selectOrdem = document.createElement('select')
+    selectOrdem.id = 'ordenacao-resultados'
+    selectOrdem.className = 'resultados__select'
+    const opcoes = [
+      ['relevancia', 'Relevância (ordem da busca)'],
+      ['titulo-az', 'Título (A–Z)'],
+      ['ano-recente', 'Ano (mais recentes primeiro)'],
+      ['ano-antigo', 'Ano (mais antigos primeiro)'],
+      ['edicoes', 'Mais edições publicadas'],
+    ]
+    for (const [valor, texto] of opcoes) {
+      const opcao = document.createElement('option')
+      opcao.value = valor
+      opcao.textContent = texto
+      selectOrdem.append(opcao)
+    }
+    selectOrdem.value = filtros.criterioOrdenacao
+    grupoOrdem.append(rotuloOrdem, selectOrdem)
 
-      if (
-        idRequisicao !== contadorRequisicao ||
-        !continuaNaMesmaRotaResultados(assunto)
-      ) {
+    const grupoFiltro = document.createElement('div')
+    grupoFiltro.className = 'resultados__grupo'
+    const rotuloFiltro = document.createElement('label')
+    rotuloFiltro.className = 'resultados__rotulo'
+    rotuloFiltro.setAttribute('for', 'filtro-texto-resultados')
+    rotuloFiltro.textContent = 'Filtrar por título ou autor'
+    const inputFiltro = document.createElement('input')
+    inputFiltro.id = 'filtro-texto-resultados'
+    inputFiltro.className = 'resultados__campo'
+    inputFiltro.type = 'search'
+    inputFiltro.placeholder = 'Ex.: nome do autor ou palavra do título'
+    inputFiltro.value = filtros.termoFiltro
+    grupoFiltro.append(rotuloFiltro, inputFiltro)
+
+    const labelCapa = document.createElement('label')
+    labelCapa.className = 'resultados__checkbox-linha'
+    const checkCapa = document.createElement('input')
+    checkCapa.type = 'checkbox'
+    checkCapa.checked = filtros.somenteComCapa
+    const textoCapa = document.createElement('span')
+    textoCapa.textContent = 'Apenas livros com capa disponível'
+    labelCapa.append(checkCapa, textoCapa)
+
+    const contagem = document.createElement('p')
+    contagem.className = 'resultados__contagem'
+    contagem.setAttribute('aria-live', 'polite')
+
+    controles.append(grupoOrdem, grupoFiltro, labelCapa, contagem)
+
+    const areaLista = document.createElement('div')
+
+    function atualizarLista() {
+      const livrosVisiveis = filtrarEOrdenarLivros(resultado.livros, filtros)
+      contagem.textContent = `Exibindo ${livrosVisiveis.length} de ${resultado.livros.length} livros`
+      areaLista.replaceChildren()
+
+      if (!livrosVisiveis.length) {
+        const msg = document.createElement('p')
+        msg.className = 'livros__mensagem'
+        msg.textContent = 'Nenhum livro corresponde ao filtro aplicado.'
+        const btnLimpar = document.createElement('button')
+        btnLimpar.type = 'button'
+        btnLimpar.className = 'resultados__botao-secundario'
+        btnLimpar.textContent = 'Limpar filtro'
+        btnLimpar.addEventListener('click', () => {
+          filtros.termoFiltro = ''
+          filtros.criterioOrdenacao = 'relevancia'
+          filtros.somenteComCapa = false
+          inputFiltro.value = ''
+          selectOrdem.value = 'relevancia'
+          checkCapa.checked = false
+          atualizarLista()
+        })
+        areaLista.append(msg, btnLimpar)
         return
       }
 
-      livrosCarregados = resposta.livros
-      totalEncontradosApi = resposta.totalEncontrados
-      horarioCacheOffline = null
+      const lista = document.createElement('ul')
+      lista.className = 'livros__lista'
+
+      for (const livro of livrosVisiveis) {
+        const item = document.createElement('li')
+        item.className = 'livro'
+        const info = criarInformacoes(livro, true)
+
+        if (servicoFavoritos && typeof servicoFavoritos.alternarFavorito === 'function') {
+          const acoes = document.createElement('div')
+          acoes.className = 'resultados__acoes-livro'
+          const btnFav = document.createElement('button')
+          btnFav.type = 'button'
+          btnFav.className = 'resultados__botao-secundario'
+          const salvo = idsFavoritos.has(livro.id)
+          btnFav.setAttribute('aria-pressed', salvo ? 'true' : 'false')
+          btnFav.textContent = salvo ? 'Remover favorito' : 'Salvar favorito'
+          btnFav.addEventListener('click', async () => {
+            try {
+              const ficouSalvo = await servicoFavoritos.alternarFavorito(livro)
+              if (ficouSalvo) idsFavoritos.add(livro.id)
+              else idsFavoritos.delete(livro.id)
+              atualizarLista()
+            } catch {
+              // Mantém estado atual caso a gravação nativa falhe
+            }
+          })
+          acoes.append(btnFav)
+          info.append(acoes)
+        }
+
+        item.append(criarCapa(livro), info)
+        lista.append(item)
+      }
+
+      areaLista.append(lista)
+    }
+
+    selectOrdem.addEventListener('change', () => {
+      filtros.criterioOrdenacao = selectOrdem.value
+      atualizarLista()
+    })
+    inputFiltro.addEventListener('input', () => {
+      filtros.termoFiltro = inputFiltro.value
+      atualizarLista()
+    })
+    checkCapa.addEventListener('change', () => {
+      filtros.somenteComCapa = checkCapa.checked
+      atualizarLista()
+    })
+
+    atualizarLista()
+    estado.append(controles, areaLista)
+  }
+
+  async function carregar() {
+    const atual = ++requisicao
+    const chaveCache = normalizarChaveAssunto(assunto)
+    mostrarCarregamento(estado, 3)
+
+    try {
+      const [resultado] = await Promise.all([
+        buscarLivrosPorAssunto(assunto),
+        carregarFavoritos(),
+      ])
+
+      if (!secao.isConnected || atual !== requisicao) return
 
       if (servicoCache && typeof servicoCache.salvarCacheBusca === 'function') {
         try {
-          await servicoCache.salvarCacheBusca(chaveCache, resposta)
+          await servicoCache.salvarCacheBusca(chaveCache, resultado)
         } catch {
-          // Falha no armazenamento de cache não deve interromper a exibição dos resultados reais
+          // Falha ao salvar cache não impede a exibição dos resultados reais
         }
       }
 
-      if (livrosCarregados.length === 0) {
-        renderizarEstadoVazio()
-        return
-      }
-
-      renderizarResultadosComControles()
+      exibirLivros(resultado)
     } catch (erro) {
-      if (
-        idRequisicao !== contadorRequisicao ||
-        !continuaNaMesmaRotaResultados(assunto)
-      ) {
-        return
-      }
+      if (!secao.isConnected || atual !== requisicao) return
 
       const semInternet =
         erro?.tipo === TIPOS_ERRO_API.SEM_INTERNET || Boolean(erro?.semInternet)
@@ -581,34 +320,27 @@ export async function resultados(app) {
       ) {
         try {
           const registroCache = await servicoCache.lerCacheBusca(chaveCache)
-          if (registroCache && registroCache.dados) {
-            livrosCarregados = Array.isArray(registroCache.dados.livros)
-              ? registroCache.dados.livros
-              : []
-            totalEncontradosApi =
-              registroCache.dados.totalEncontrados ?? livrosCarregados.length
-            horarioCacheOffline = registroCache.atualizadoEm || 'horário anterior'
-
-            if (livrosCarregados.length === 0) {
-              renderizarEstadoVazio()
-            } else {
-              renderizarResultadosComControles()
-            }
+          if (registroCache?.dados) {
+            exibirLivros(
+              registroCache.dados,
+              registroCache.atualizadoEm || 'horário anterior',
+            )
             return
           }
         } catch {
-          // Se a leitura do cache falhar, exibe o estado de erro/sem internet padrão
+          // Segue para exibição padrão de erro sem internet
         }
       }
 
-      renderizarEstadoErro(erro)
+      mostrarErro(estado, erro, carregar)
     }
   }
 
-  await executarBusca()
+  carregar()
 }
 
 export default {
-  url: '#/resultados',
-  pagina: resultados,
+  caminho: '/resultados',
+  titulo: 'Resultados',
+  renderizar: renderizarResultados,
 }
