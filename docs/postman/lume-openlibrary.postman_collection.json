@@ -1,0 +1,316 @@
+{
+  "info": {
+    "_postman_id": "8b7d4c10-5e9a-4f3a-9c2d-1a2b3c4d5e6f",
+    "name": "Lume — Open Library API (E1 e Testes de Falha)",
+    "description": "Coleção Postman para testar os endpoints reais da Open Library utilizados pelo aplicativo Lume (Tema 8: O que eu leio agora?). Inclui scripts de teste automatizados na aba Tests/Scripts.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "1. Busca por assunto (Sucesso - E1 Print)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status HTTP é 200 OK', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('Resposta contém numFound e array docs não vazio', function () {",
+              "  const jsonData = pm.response.json();",
+              "  pm.expect(jsonData).to.be.an('object');",
+              "  pm.expect(jsonData.numFound).to.be.a('number').and.to.be.above(0);",
+              "  pm.expect(jsonData.docs).to.be.an('array').that.is.not.empty;",
+              "});",
+              "",
+              "pm.test('Primeiro livro possui campos exigidos para conversão (key e title)', function () {",
+              "  const primeiro = pm.response.json().docs[0];",
+              "  pm.expect(primeiro).to.have.property('key');",
+              "  pm.expect(primeiro.key).to.match(/^\\/works\\/OL\\w+W$/);",
+              "  pm.expect(primeiro).to.have.property('title');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/search.json?subject={{assuntoPadrao}}&limit=10&page=1&fields=key,title,author_name,first_publish_year,cover_i,subject,edition_count",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "search.json"
+          ],
+          "query": [
+            {
+              "key": "subject",
+              "value": "{{assuntoPadrao}}",
+              "description": "Assunto pesquisado pelo usuário"
+            },
+            {
+              "key": "limit",
+              "value": "10",
+              "description": "Quantidade máxima de itens retornados por página"
+            },
+            {
+              "key": "page",
+              "value": "1",
+              "description": "Página de resultados"
+            },
+            {
+              "key": "fields",
+              "value": "key,title,author_name,first_publish_year,cover_i,subject,edition_count",
+              "description": "Campos solicitados para reduzir o payload da resposta"
+            }
+          ]
+        },
+        "description": "Busca livros sobre um assunto na Open Library retornando apenas os campos necessários para a conversão em `LivroResumo`."
+      },
+      "response": []
+    },
+    {
+      "name": "2. Busca por assunto inexistente (Estado Vazio)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status HTTP é 200 OK mesmo sem resultados', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('Retorna numFound igual a 0 e array docs vazio', function () {",
+              "  const jsonData = pm.response.json();",
+              "  pm.expect(jsonData.numFound).to.eql(0);",
+              "  pm.expect(jsonData.docs).to.be.an('array').that.is.empty;",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/search.json?subject=assuntoinexistentelume987654321&limit=10&page=1&fields=key,title,author_name,first_publish_year,cover_i,subject,edition_count",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "search.json"
+          ],
+          "query": [
+            {
+              "key": "subject",
+              "value": "assuntoinexistentelume987654321"
+            },
+            {
+              "key": "limit",
+              "value": "10"
+            },
+            {
+              "key": "page",
+              "value": "1"
+            },
+            {
+              "key": "fields",
+              "value": "key,title,author_name,first_publish_year,cover_i,subject,edition_count"
+            }
+          ]
+        },
+        "description": "Verifica o comportamento da Open Library quando o assunto pesquisado não possui livros cadastrados (`docs: []`)."
+      },
+      "response": []
+    },
+    {
+      "name": "3. Detalhe da obra por ID (Sucesso)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status HTTP é 200 OK', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('Resposta contém key e title da obra', function () {",
+              "  const jsonData = pm.response.json();",
+              "  pm.expect(jsonData).to.have.property('key', '/works/' + pm.collectionVariables.get('obraIdPadrao'));",
+              "  pm.expect(jsonData).to.have.property('title');",
+              "});",
+              "",
+              "pm.test('Campo description é string ou objeto { type, value } quando presente', function () {",
+              "  const jsonData = pm.response.json();",
+              "  if (jsonData.description !== undefined && jsonData.description !== null) {",
+              "    const ehString = typeof jsonData.description === 'string';",
+              "    const ehObjetoTexto = typeof jsonData.description === 'object' && typeof jsonData.description.value === 'string';",
+              "    pm.expect(ehString || ehObjetoTexto).to.be.true;",
+              "  }",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/works/{{obraIdPadrao}}.json",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "works",
+            "{{obraIdPadrao}}.json"
+          ]
+        },
+        "description": "Obtém os dados detalhados de uma obra pelo seu ID (ex.: `OL29226517W`), utilizado na rota `#/detalhe/:id`."
+      },
+      "response": []
+    },
+    {
+      "name": "4. Metadados complementares da obra por ID (Suporte a F5 no Detalhe)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status HTTP é 200 OK', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('Retorna author_name e first_publish_year para a obra consultada', function () {",
+              "  const jsonData = pm.response.json();",
+              "  pm.expect(jsonData.docs).to.be.an('array').that.is.not.empty;",
+              "  const doc = jsonData.docs[0];",
+              "  pm.expect(doc.author_name).to.be.an('array').that.is.not.empty;",
+              "  pm.expect(doc.first_publish_year).to.be.a('number');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/search.json?q=key:/works/{{obraIdPadrao}}&limit=1&fields=key,title,author_name,first_publish_year,cover_i,subject,edition_count",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "search.json"
+          ],
+          "query": [
+            {
+              "key": "q",
+              "value": "key:/works/{{obraIdPadrao}}"
+            },
+            {
+              "key": "limit",
+              "value": "1"
+            },
+            {
+              "key": "fields",
+              "value": "key,title,author_name,first_publish_year,cover_i,subject,edition_count"
+            }
+          ]
+        },
+        "description": "Como `/works/{id}.json` traz apenas a referência `/authors/{id}` sem o nome do autor, esta chamada complementar garante nome dos autores, ano da primeira publicação e total de edições mesmo após F5 direto na rota `#/detalhe/:id`."
+      },
+      "response": []
+    },
+    {
+      "name": "5. Detalhe de obra inexistente (Erro 404)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status HTTP é 404 Not Found', function () {",
+              "  pm.response.to.have.status(404);",
+              "});",
+              "",
+              "pm.test('Corpo JSON informa error: notfound', function () {",
+              "  const jsonData = pm.response.json();",
+              "  pm.expect(jsonData).to.have.property('error', 'notfound');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/works/OL0000000W.json",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "works",
+            "OL0000000W.json"
+          ]
+        },
+        "description": "Verifica o comportamento de erro HTTP 404 quando um identificador de obra inexistente é acessado na rota `#/detalhe/:id`."
+      },
+      "response": []
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "https://openlibrary.org",
+      "type": "string"
+    },
+    {
+      "key": "assuntoPadrao",
+      "value": "fantasia",
+      "type": "string"
+    },
+    {
+      "key": "obraIdPadrao",
+      "value": "OL29226517W",
+      "type": "string"
+    }
+  ]
+}
