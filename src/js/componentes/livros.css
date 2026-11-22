@@ -1,4 +1,4 @@
-.livros { display: flex; flex-direction: column; gap: var(--espaco-4); padding: var(--espaco-8) 0; }
+.livros { display: flex; flex-direction: column; gap: var(--espaco-4); padding: 0 0 var(--espaco-8); }
 .livros__titulo { margin: 0; font-family: Georgia, serif; font-size: 2rem; font-weight: 500; line-height: 1.15; overflow-wrap: anywhere; }
 .livros__subtitulo, .livros__mensagem, .livro__meta { margin: 0; color: var(--cor-texto-secundario); }
 .livros__lista { display: flex; flex-direction: column; gap: var(--espaco-6); margin: var(--espaco-4) 0; padding: 0; list-style: none; }
