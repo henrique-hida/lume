@@ -4,6 +4,19 @@ import '../css/style.css'
 import { encontrarRota } from './rotas/rotas.js'
 import { renderizarNavbar } from './navbar/navbar.js'
 import { renderizarNaoEncontrada } from './paginas/nao-encontrada/nao-encontrada.js'
+import { configurarPersistenciaResultados } from './paginas/resultados/resultados.js'
+import { configurarPersistenciaDetalhe } from './paginas/detalhe/detalhe.js'
+import servicoCache from './servicos/cache.js'
+import servicoFavoritos from './servicos/favoritos.js'
+
+configurarPersistenciaResultados({
+  cache: servicoCache,
+  favoritos: servicoFavoritos,
+})
+configurarPersistenciaDetalhe({
+  cache: servicoCache,
+  favoritos: servicoFavoritos,
+})
 
 const app = document.querySelector('#app')
 app.innerHTML = `

@@ -1,0 +1,45 @@
+.favoritos__contagem {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--cor-texto-secundario);
+}
+
+.favoritos__acoes-livro {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--espaco-2);
+  margin-top: var(--espaco-1);
+}
+
+.favoritos__botao-remover {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.75rem;
+  padding: var(--espaco-2) var(--espaco-4);
+  border: 1px solid var(--cor-borda);
+  border-radius: var(--raio-medio);
+  background: var(--cor-superficie);
+  color: var(--cor-acao);
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 700;
+  cursor: pointer;
+  min-width: 0;
+}
+
+.favoritos__botao-remover:hover {
+  background: var(--cor-superficie-suave);
+}
+
+.favoritos__vazio {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--espaco-4);
+  padding: var(--espaco-4);
+  border: 1px solid var(--cor-borda);
+  border-radius: var(--raio-medio);
+  background: var(--cor-superficie);
+  min-width: 0;
+}
